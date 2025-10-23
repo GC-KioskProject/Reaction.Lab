@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reaction Lab</title>
+    <!-- Load Tailwind CSS for utility classes on UI elements -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+    <!-- Load Three.js and its dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Load OrbitControls for camera interaction (mandatory for good 3D responsiveness) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        /* Custom Styles */
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            overflow: hidden; /* Hide scrollbars */
+            background-color: #0d0d1a; /* Deep space blue/purple */
+            color: #fff;
+        }
+
+        #scene-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        /* FPS Display Styling */
+        .score-box {
+            font-family: 'Space Mono', monospace;
+            background-color: rgba(60, 0, 90, 0.8);
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            border: 1px solid #c4b5fd;
+            box-shadow: 0 0 10px rgba(196, 181, 253, 0.5);
+            font-weight: 700;
+            color: #c4b5fd;
+        }
+
+        /* Generic Button Styling */
+        .shape-button {
+            background-color: #312e81; /* Indigo-900 */
+            color: #fff;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            border: 1px solid currentColor;
+            box-shadow: 0 0 8px currentColor;
+            pointer-events: auto;
+            white-space: nowrap;
+        }
+        .shape-button:hover {
+            background-color: #4338ca; /* Indigo-800 */
+            transform: translateY(-1px);
+        }
+
+        .reset-button {
+            background-color: #7f1d1d; /* Red-900 */
+            color: #fca5a5; /* Red-300 */
+            border-color: #fca5a5;
+            box-shadow: 0 0 8px #fca5a5;
+        }
+        .reset-button:hover {
+            background-color: #991b1b;
+        }
+
+        .text-input {
+            background-color: #1f2937;
+            border: 1px solid #8b5cf6;
+            color: #c4b5fd;
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            width: 100%;
+            max-width: 150px;
+        }
+
+        /* Responsive adjustments for controls panel layout */
+        #controls-panel {
+            min-width: 95%;
+            align-items: center;
+        }
+        @media (min-width: 768px) {
+            #controls-panel {
+                min-width: 75%;
+                max-width: 1000px;
+                flex-direction: row;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-900">
+
+    <div id="scene-container">
+        <!-- Three.js Canvas will be appended here -->
+    </div>
+
+    <!-- Controls Panel for FPS and Dynamic Shape Generation -->
+    <div id="controls-panel" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex flex-col md:flex-row justify-between items-center space-y-3 md:space-y-0 p-4 rounded-xl bg-gray-800 bg-opacity-90 border border-indigo-500 shadow-2xl">
+        
+        <!-- FPS DISPLAY -->
+        <div id="fpsDisplay" class="score-box text-sm md:text-lg font-mono min-w-[100px] text-center">FPS: Loading</div>
+        
+        <!-- SHAPE BUTTONS -->
+        <div class="flex flex-wrap justify-center gap-2 md:gap-3">
+            <button onclick="addAnimatedShape('dodecahedron')" class="shape-button text-purple-300" style="border-color:#d8b4fe; box-shadow: 0 0 8px #d8b4fe;">Dodecahedron</button>
+            <button onclick="addAnimatedShape('pyramid')" class="shape-button text-red-300" style="border-color:#fca5a5; box-shadow: 0 0 8px #fca5a5;">Pyramid</button>
+            <button onclick="addAnimatedShape('cube')" class="shape-button text-green-300" style="border-color:#86efac; box-shadow: 0 0 8px #86efac;">Cube</button>
+            <button onclick="addAnimatedShape('cylinder')" class="shape-button text-blue-300" style="border-color:#93c5fd; box-shadow: 0 0 8px #93c5fd;">Cylinder</button>
+            <button onclick="addAnimatedShape('sphere')" class="shape-button text-cyan-300" style="border-color:#67e8f9; box-shadow: 0 0 8px #67e8f9;">Sphere</button>
+        </div>
+
+        <!-- TEXT INPUT & BUTTON -->
+        <div class="flex flex-col space-y-2 md:space-y-0 md:flex-row gap-2 items-center">
+            <input type="text" id="textInput" value="VR Test" maxlength="10" placeholder="Custom Text (Max 10)" class="text-input text-xs md:text-sm">
+            <button onclick="addAnimatedShape('text')" id="addTextButton" class="shape-button text-yellow-300" style="border-color:#fde047; box-shadow: 0 0 8px #fde047; opacity: 0.5;" disabled>Add Text</button>
+        </div>
+
+        <!-- RESET BUTTON -->
+        <button onclick="resetScene()" class="shape-button reset-button">Reset Scene</button>
+    </div>
+
+    <script>
+        // --- Firebase Globals (Standard Canvas Environment Setup - Not used for this demo) ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let scene, camera, renderer, controls;
+        let animatedObjects = []; // Array to hold all animated objects
+        
+        // --- Font Loading for 3D Text ---
+        const fontLoader = new THREE.FontLoader();
+        let loadedFont = null;
+        const addTextButton = document.getElementById('addTextButton');
+
+        const container = document.getElementById('scene-container');
+        const fpsDisplay = document.getElementById('fpsDisplay');
+
+        // --- FPS Tracking Variables ---
+        let lastTime = 0;
+        let fpsCounter = 0;
+        const FPS_UPDATE_INTERVAL = 10; // Update FPS display every 10 frames
+
+        /**
+         * Initializes the Three.js scene, camera, and renderer.
+         */
+        function init() {
+            // 1. Scene Setup
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x0d0d1a, 0.005);
+
+            // 2. Camera Setup
+            const fov = 75;
+            const aspect = window.innerWidth / window.innerHeight;
+            const near = 0.1;
+            const far = 1000;
+            camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
+            camera.position.z = 15;
+            camera.position.y = 5;
+
+            // 3. Renderer Setup
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            container.appendChild(renderer.domElement);
+
+            // 4. Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0x8b5cf6, 1.5);
+            directionalLight.position.set(5, 10, 7.5);
+            scene.add(directionalLight);
+
+            // 5. Controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false;
+            controls.minDistance = 5;
+            controls.maxDistance = 50;
+
+            // 6. Add Initial Geometry
+            createGround();
+            createStars(5000);
+            
+            // 7. Load Font for Text Geometry
+            loadFont();
+            
+            // Add initial set of objects
+            for (let i = 0; i < 15; i++) {
+                // Mix in a few different types initially
+                const types = ['dodecahedron', 'cube', 'cylinder'];
+                const type = types[i % types.length];
+                addAnimatedShape(type, false);
+            }
+            
+            // Start event listeners and animation loop
+            window.addEventListener('resize', onWindowResize, false);
+            animate(0);
+        }
+
+        /**
+         * Asynchronously loads the typeface JSON required for 3D text generation.
+         */
+        function loadFont() {
+            fontLoader.load(
+                // Public CDN link for a basic Three.js font
+                'https://threejs.org/examples/fonts/gentilis_regular.typeface.json',
+                function (font) {
+                    loadedFont = font;
+                    console.log("3D Font asset loaded successfully.");
+                    // Enable the text button and remove opacity once loaded
+                    addTextButton.disabled = false;
+                    addTextButton.style.opacity = 1.0;
+                    addTextButton.textContent = 'Add Text';
+                },
+                undefined, // onProgress
+                function (error) {
+                    console.error('Error loading 3D font:', error);
+                    addTextButton.textContent = 'Font Error';
+                }
+            );
+        }
+
+        /**
+         * Creates a large grid plane and the background stars.
+         */
+        function createGround() {
+            const size = 100;
+            const divisions = 100;
+            const gridHelper = new THREE.GridHelper(size, divisions, 0x5a32a8, 0x5a32a8);
+            gridHelper.position.y = 0;
+            scene.add(gridHelper);
+        }
+        
+        function createStars(count) {
+            const starGeometry = new THREE.BufferGeometry();
+            const starMaterial = new THREE.PointsMaterial({
+                color: 0xffffff, size: 0.1, sizeAttenuation: true, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.8
+            });
+            const starVertices = [];
+            for (let i = 0; i < count; i++) {
+                const x = (Math.random() - 0.5) * 200;
+                const y = (Math.random() - 0.5) * 200;
+                const z = (Math.random() - 0.5) * 200;
+                starVertices.push(x, y, z);
+            }
+            starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+            const stars = new THREE.Points(starGeometry, starMaterial);
+            scene.add(stars);
+        }
+
+
+        /**
+         * Creates and adds a new animated shape to the scene.
+         * @param {string} type - The type of geometry ('cube', 'pyramid', 'text', etc.).
+         */
+        function addAnimatedShape(type, checkFont = true) {
+            let geometry;
+            let color;
+            let size = 1.5 + Math.random() * 0.5; // Slightly varying size
+
+            switch (type) {
+                case 'dodecahedron':
+                    geometry = new THREE.DodecahedronGeometry(size, 0);
+                    color = 0xd8b4fe; // Purple
+                    break;
+                case 'pyramid':
+                    // ConeGeometry with 4 sides for a square pyramid
+                    geometry = new THREE.ConeGeometry(size, size * 1.5, 4);
+                    color = 0xfca5a5; // Red
+                    break;
+                case 'cube':
+                    geometry = new THREE.BoxGeometry(size, size, size);
+                    color = 0x86efac; // Green
+                    break;
+                case 'cylinder':
+                    geometry = new THREE.CylinderGeometry(size * 0.5, size * 0.5, size * 1.5, 32);
+                    color = 0x93c5fd; // Blue
+                    break;
+                case 'sphere':
+                    geometry = new THREE.SphereGeometry(size, 16, 16);
+                    color = 0x67e8f9; // Cyan
+                    break;
+                case 'text':
+                    if (checkFont && !loadedFont) {
+                        console.warn("Font not yet loaded for 3D text.");
+                        // Handle user feedback better than just logging
+                        addTextButton.textContent = 'Loading...';
+                        setTimeout(() => addTextButton.textContent = 'Add Text', 1000);
+                        return;
+                    }
+                    const textContent = document.getElementById('textInput').value || "VR Test";
+                    geometry = new THREE.TextGeometry(textContent, {
+                        font: loadedFont,
+                        size: 2,
+                        height: 0.5,
+                        curveSegments: 12,
+                        bevelEnabled: true,
+                        bevelThickness: 0.05,
+                        bevelSize: 0.02,
+                        bevelOffset: 0,
+                        bevelSegments: 5
+                    });
+                    // Center the text geometry after creation
+                    geometry.computeBoundingBox();
+                    const textWidth = geometry.boundingBox.max.x - geometry.boundingBox.min.x;
+                    geometry.translate(-0.5 * textWidth, 0, 0); 
+                    
+                    color = 0xfde047; // Yellow
+                    break;
+                default:
+                    return;
+            }
+
+            const material = new THREE.MeshPhongMaterial({
+                color: color,
+                emissive: color,
+                emissiveIntensity: 0.7,
+                specular: 0xffffff,
+                shininess: 100
+            });
+
+            const mesh = new THREE.Mesh(geometry, material);
+
+            // Random placement within bounds, floating above the ground
+            mesh.position.set(
+                (Math.random() - 0.5) * 40,
+                Math.random() * 8 + 2, // Between 2 and 10 units up
+                (Math.random() - 0.5) * 40
+            );
+
+            // Store animation data
+            mesh.userData.initialY = mesh.position.y;
+            // Dodecahedrons and Text rotate slower for visual clarity
+            mesh.userData.rotationSpeed = type === 'text' || type === 'dodecahedron' ? (Math.random() * 0.005 + 0.001) : (Math.random() * 0.01 + 0.005);
+            
+            scene.add(mesh);
+            animatedObjects.push(mesh);
+        }
+
+        /**
+         * Clears all dynamically added shapes and resets the initial set.
+         */
+        function resetScene() {
+            if (!scene) return;
+            
+            // Dispose of geometry and material to free up GPU memory
+            animatedObjects.forEach(mesh => {
+                scene.remove(mesh);
+                if (mesh.geometry) mesh.geometry.dispose();
+                if (mesh.material) mesh.material.dispose();
+            });
+            animatedObjects = [];
+
+            // Add the initial set of objects back (without checking font status)
+            for (let i = 0; i < 15; i++) {
+                const types = ['dodecahedron', 'cube', 'cylinder'];
+                const type = types[i % types.length];
+                addAnimatedShape(type, false);
+            }
+        }
+
+        /**
+         * Calculates and updates the Frames Per Second display.
+         * @param {number} now - The current timestamp from requestAnimationFrame.
+         */
+        function updateFPS(now) {
+            if (lastTime === 0) {
+                lastTime = now;
+            }
+            const delta = now - lastTime;
+            lastTime = now;
+            // Calculate instantaneous FPS: 1000ms / delta_time_in_ms
+            const fps = Math.round(1000 / delta);
+
+            // Update display only every X frames to avoid excessive DOM manipulation
+            if (fpsCounter % FPS_UPDATE_INTERVAL === 0) {
+                fpsDisplay.textContent = `FPS: ${fps}`;
+            }
+            fpsCounter++;
+        }
+
+
+        /**
+         * Handles window resizing to maintain responsiveness.
+         */
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        /**
+         * The main animation loop for rendering and updating controls/objects.
+         * @param {number} now - The high-resolution timestamp (ms) since the page loaded.
+         */
+        function animate(now) {
+            requestAnimationFrame(animate);
+
+            // 1. Update FPS counter
+            updateFPS(now);
+
+            // 2. Update controls
+            controls.update();
+
+            // 3. Animate all objects
+            const time = performance.now() * 0.001; // Time in seconds
+            animatedObjects.forEach((mesh, index) => {
+                // Rotation
+                mesh.rotation.x += mesh.userData.rotationSpeed;
+                mesh.rotation.y += mesh.userData.rotationSpeed * 1.5;
+
+                // Floating movement using sine waves
+                mesh.position.y = mesh.userData.initialY + Math.sin(time * 0.5 + index) * 1.0;
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        // Start the application when the window loads
+        window.onload = init;
+    </script>
+</body>
+</html>
